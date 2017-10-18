@@ -1,7 +1,12 @@
 (function () {
   'use strict';
+
+  function ngMaterialDatePicker(moment) {
   var moduleName = "ngMaterialDatePicker";
 
+  var mdAccesTime = 'data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjMDAwMDAwIiBoZWlnaHQ9IjI0IiB2aWV3Qm94PSIwIDAgMjQgMjQiIHdpZHRoPSIyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4gICAgPHBhdGggZD0iTTExLjk5IDJDNi40NyAyIDIgNi40OCAyIDEyczQuNDcgMTAgOS45OSAxMEMxNy41MiAyMiAyMiAxNy41MiAyMiAxMlMxNy41MiAyIDExLjk5IDJ6TTEyIDIwYy00LjQyIDAtOC0zLjU4LTgtOHMzLjU4LTggOC04IDggMy41OCA4IDgtMy41OCA4LTggOHoiLz4gICAgPHBhdGggZD0iTTAgMGgyNHYyNEgweiIgZmlsbD0ibm9uZSIvPiAgICA8cGF0aCBkPSJNMTIuNSA3SDExdjZsNS4yNSAzLjE1Ljc1LTEuMjMtNC41LTIuNjd6Ii8+PC9zdmc+',
+      mdCalendar = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMTkgM2gtMVYxaC0ydjJIOFYxSDZ2Mkg1Yy0xLjExIDAtMS45OS45LTEuOTkgMkwzIDE5YzAgMS4xLjg5IDIgMiAyaDE0YzEuMSAwIDItLjkgMi0yVjVjMC0xLjEtLjktMi0yLTJ6bTAgMTZINVY4aDE0djExek03IDEwaDV2NUg3eiIvPjwvc3ZnPg==';
+  
   var VIEW_STATES = {
     DATE: 0,
     HOUR: 1,
@@ -69,28 +74,27 @@
         + '      </md-dialog-actions>'
         + '</md-dialog>';
 
-
   angular.module(moduleName, ['ngMaterial'])
-    .provider('mdcDatetimePickerDefaultLocale', function () {
-      this.locale = window.navigator.userLanguage || window.navigator.language || 'en';
-
+    .service('mdcDatetimePickerDefaultLocale', ['mdcDefaultParams', function (mdcDefaultParams) {
       this.$get = function () {
-        return this;
+        return mdcDefaultParams().lang;
       };
 
       this.setDefaultLocale = function (localeString) {
-        this.locale = localeString;
+        mdcDefaultParams({ lang: localeString });
       };
-    })
-    .factory('mdcDefaultParams', ['mdcDatetimePickerDefaultLocale', function (mdcDatetimePickerDefaultLocale) {
+    }])
+    .factory('mdcDefaultParams', function () {
       var default_params = {
         date: true,
         time: true,
+        minutes: true,
+        seconds: false,
         format: 'YYYY-MM-DD',
         minDate: null,
         maxDate: null,
         currentDate: null,
-        lang: mdcDatetimePickerDefaultLocale.locale,
+        lang: window.navigator.userLanguage || window.navigator.language || 'en',
         weekStart: 0,
         shortTime: false,
         cancelText: 'Cancel',
@@ -98,12 +102,30 @@
         amText: 'AM',
         pmText: 'PM',
         todayText: 'Today',
-        disableDates: []
+        disableDates: [],
+        weekDays: false,
+        disableParentScroll: false,
+        autoOk: false,
+        editInput: false,
+        clickOutsideToClose: false,
+        minuteSteps: 5,
+        showIcon: false,
       };
-      return default_params;
-    }])
-    .directive('mdcDatetimePicker', ['$mdDialog', '$timeout',
-      function ($mdDialog, $timeout) {
+
+      return function (params) {
+        if (params) {
+          for (var i in params) {
+            if (default_params.hasOwnProperty(i) && params.hasOwnProperty(i)) {
+              default_params[i] = params[i];
+            }
+          }
+        }
+
+        return default_params;
+      };
+    })
+    .directive('mdcDatetimePicker', ['$mdDialog', '$timeout', '$compile',
+      function ($mdDialog, $timeout, $compile) {
 
         return {
           restrict: 'A',
@@ -113,9 +135,12 @@
             ngChange: '&',
             time: '=',
             date: '=',
+            minutes: '=',
+            seconds: '=',
             minDate: '=',
             maxDate: '=',
             disableDates: '=',
+            weekDays: '=',
             shortTime: '=',
             weekStart: '=',
             format: '@',
@@ -125,12 +150,20 @@
             amText: '@',
             pmText: '@',
             showTodaysDate: '@',
-            todayText: '@'
+            todayText: '@',
+            disableParentScroll: '=',
+            autoOk: '=',
+            editInput: '=',
+            clickOutsideToClose: '=',
+            minuteSteps: '=',
+            showIcon: '='
           },
           link: function (scope, element, attrs, ngModel) {
             var isOn = false;
             if (!scope.format) {
-              if (scope.date && scope.time) {
+              if (scope.date && scope.time && scope.seconds) {
+                scope.format = 'YYYY-MM-DD HH:mm:ss';
+              } else if (scope.date && scope.time) {
                 scope.format = 'YYYY-MM-DD HH:mm';
               } else if (scope.date) {
                 scope.format = 'YYYY-MM-DD';
@@ -149,20 +182,28 @@
             }
 
             if (ngModel) {
+              var ngModelOptions = {'*': '$inherit', debounce: 500};
+              ngModel.$options = ngModel.$options ? ngModel.$options.createChild(ngModelOptions) : ngModelOptions;
+              
               ngModel.$formatters.push(function (value) {
-                if (typeof value === 'undefined') {
-                  return;
-                }
+                if (typeof value === 'undefined') return;
                 var m = moment(value);
                 return m.isValid() ? m.format(scope.format) : '';
               });
+              
+              ngModel.$parsers.push(function (value) {
+                if (typeof value === 'undefined') return;
+                var m = moment(value, scope.format);
+                if (m.isValid()) return m._d;
+                return;
+              });
+              
             }
 
-            element.attr('readonly', '');
-            //@TODO custom event to trigger input
-            element.on('focus', function (e) {
+            function openCalendar (e) {
               e.preventDefault();
               element.blur();
+              element.parent().removeClass('md-input-focused');
               if (isOn) {
                 return;
               }
@@ -185,26 +226,58 @@
                 openFrom: element,
                 parent: angular.element(document.body),
                 bindToController: true,
-                disableParentScroll: false,
+                clickOutsideToClose: options.clickOutsideToClose || false,
+                disableParentScroll: options.disableParentScroll || false,
                 hasBackDrop: false,
-                skipHide: true
-              })
-                .then(function (v) {
-                  scope.currentDate = v ? v._d : v;
-                  isOn = false;
+                skipHide: true,
+                multiple: true
+              }).then(function (v) {
+                scope.currentDate = v ? v._d : v;
+                isOn = false;
 
-                  if (!moment(scope.currentDate).isSame(options.currentDate)) {
-                    $timeout(scope.ngChange, 0);
-                  }
+                if (!moment(scope.currentDate).isSame(options.currentDate)) {
+                  $timeout(scope.ngChange, 0);
+                }
 
-                  element.blur()
+                element.parent().removeClass('md-input-focused');
+              }, function () {
+                isOn = false;
+                element.parent().removeClass('md-input-focused');
+              });
+            }
 
-                }, function () {
-                  isOn = false;
-                  element.blur()
-                })
-              ;
-            });
+            if (!scope.editInput) {
+              if (scope.showIcon) {
+                element.on('click', openCalendar);
+              } else {
+                element.on('focus', openCalendar);
+              }
+            }
+            
+            if (scope.showIcon) {
+              element.addClass('dtp-no-msclear dtp-input');
+              var calendarButton =  
+              '<md-button class="dtp-btn-calendar md-icon-button" type="button" ' +
+                'tabindex="-1" aria-hidden="true" ' +
+                'ng-click="openCalendarDiag($event)">' +
+                '<md-icon aria-label="md-calendar" md-svg-src="' + (scope.date ? mdCalendar : mdAccesTime) + '"></md-icon>' +
+              '</md-button>',
+              clearButton = '<md-button ng-show="currentDate" class="md-icon-button dtp-clear" aria-hidden="true" ng-click="clear()">&#x2715;</md-button>';
+              element.after($compile(calendarButton + clearButton)(scope));
+
+              scope.openCalendarDiag = function(e) {
+                openCalendar(e);
+              };
+
+              scope.clear = function() {
+                ngModel.$setViewValue(null);
+                scope.currentDate = null;
+                ngModel.$render();
+                $timeout(function() {
+                  element[0].focus();
+                }, 0, false);
+              };
+            }
           }
         };
       }])
@@ -214,34 +287,51 @@
      @param options extends mdcDefaultParams
      {
        date: {boolean} =true,
-         time: {boolean] =true,
-         format: {string} ='YYYY-MM-DD',
-         minDate: {strign} =null,
-         maxDate: {string} =null,
-         currentDate: {string} =null,
-         lang: {string} =mdcDatetimePickerDefaultLocale,
-         weekStart: {int} =0,
-         shortTime: {boolean} =false,
-         cancelText: {string} ='Cancel',
-         todayText: {string} ='Today',
-         okText: {string} ='OK',
-         amText: {string} ='AM',
-         pmText: {string} ='PM'
+       time: {boolean} =true,
+       minutes: {boolean} =true,
+       seconds: {boolean} =false,
+       format: {string} ='YYYY-MM-DD',
+       minDate: {strign} =null,
+       maxDate: {string} =null,
+       currentDate: {string} =null,
+       lang: {string} =window.navigator.userLanguage || window.navigator.language || 'en',
+       weekStart: {int} =0,
+       shortTime: {boolean} =false,
+       cancelText: {string} ='Cancel',
+       showTodaysDate: {string} ='',
+       todayText: {string} ='Today',
+       okText: {string} ='OK',
+       amText: {string} ='AM',
+       pmText: {string} ='PM',
+       disableDates: {date[]} =[],
+       weekDays: {boolean} =false,
+       disableParentScroll: {boolean} =false,
+       autoOk: {boolean} =false,
+       editInput: {boolean} =false,
+       clickOutsideToClose: {boolean} =false,
+       minuteSteps: {int} =5,
      }
-   @return promise
+     @return promise
     */
     .factory('mdcDateTimeDialog', ["$mdDialog", "$q", "mdcDefaultParams", function ($mdDialog, $q, mdcDefaultParams) {
-      var accepted_options = Object.keys(mdcDefaultParams);
-      console.log(accepted_options);
+      var defaultParams = mdcDefaultParams();
+      var accepted_options = Object.keys(defaultParams);
       var service = {
         show: function (options) {
           var deferred = $q.defer();
-          var params = angular.copy(mdcDefaultParams);
+          var params = angular.copy(defaultParams);
           for (var i in options) {
             if (accepted_options.indexOf[i] != -1 && options.hasOwnProperty(i)) {
               params = options[i];
             }
           }
+
+          var dateOfTheDay = null;
+          if (options.showTodaysDate !== undefined && options.showTodaysDate !== "false") {
+            dateOfTheDay = moment();
+          }
+          options.showTodaysDate = dateOfTheDay;
+
           var locals = {options: options};
           $mdDialog.show({
             template: template,
@@ -250,16 +340,16 @@
             locals: locals,
             parent: angular.element(document.body),
             bindToController: true,
-            clickOutsideToClose: true,
-            disableParentScroll: false,
-            skipHide: true
-          })
-            .then(function (v) {
-              var currentDate = v ? v._d : v;
-              deferred.resolve(v ? v._d : v);
-            }, function () {
-              deferred.reject();
-            });
+            clickOutsideToClose: options.clickOutsideToClose || false,
+            disableParentScroll: options.disableParentScroll || false,
+            skipHide: true,
+            multiple: true
+          }).then(function (v) {
+            var currentDate = v ? v._d : v;
+            deferred.resolve(v ? v._d : v);
+          }, function () {
+            deferred.reject();
+          });
           return deferred.promise;
         }
       };
@@ -274,7 +364,7 @@
 
     this._attachedEvents = [];
     this.VIEWS = VIEW_STATES;
-    this.params = mdcDefaultParams;
+    this.params = angular.copy(mdcDefaultParams());
     this.meridien = 'AM';
     this.params = angular.extend(this.params, this.options);
 
@@ -289,13 +379,20 @@
       this.initDates();
       this.start();
     },
-    currentNearest5Minute: function () {
+    currentNearestMinute: function () {
+      var nearestMin = this.params.minuteSteps;
+      if (nearestMin < 1 || nearestMin > 59) nearestMin = 1;
+
       var date = this.currentDate || moment();
-      var minutes = (5 * Math.round(date.minute() / 5));
+      var minutes = (nearestMin * Math.round(date.minute() / nearestMin));
       if (minutes >= 60) {
-        minutes = 55; //always push down
+        minutes = 60 - nearestMin; //always push down
       }
-      return moment(date).minutes(minutes);
+      var seconds = date.second();
+      if (seconds >= 60) {
+        seconds = 60 - 1; //always push down
+      }
+      return moment(date).minutes(minutes).seconds(seconds);
     },
     initDates: function () {
       var that = this;
@@ -327,12 +424,14 @@
       };
 
       this.currentDate = _dateParam(this.params.currentDate, moment());
+      this.currentDate = this.currentNearestMinute();
       this.minDate = _dateParam(this.params.minDate);
       this.maxDate = _dateParam(this.params.maxDate);
       this.disableDates = this.params.disableDates.map(function (x) {
-        return moment(x).format('MMMM Do YYYY')
+        return moment(x).format('MMMM Do YYYY');
       });
       this.selectDate(this.currentDate);
+      this.weekDays = this.params.weekDays;
     },
     initDate: function () {
       this.currentView = VIEW_STATES.DATE;
@@ -342,6 +441,9 @@
     },
     initMinutes: function () {
       this.currentView = VIEW_STATES.MINUTE;
+    },
+    initSeconds: function () {
+      this.currentView = VIEW_STATES.SECOND;
     },
     isAfterMinDate: function (date, checkHour, checkMinute) {
       var _return = true;
@@ -410,8 +512,17 @@
       return _return;
     },
     isInDisableDates: function (date) {
-      var dut = date.format('MMMM Do YYYY')
+      var dut = date.format('MMMM Do YYYY');
       if (this.disableDates.indexOf(dut) > -1) {
+        return false;
+      }
+      return true;
+    },
+    isWeekDay: function(date) {
+      if (this.weekDays) {
+        if (date.isoWeekday() <= 5) {
+          return true;
+        }
         return false;
       }
       return true;
@@ -431,18 +542,17 @@
         this.meridien = this.currentDate.hour() >= 12 ? 'PM' : 'AM';
       }
     },
-    setName: function () {
-      var text = "";
-      var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-      for (var i = 0; i < 5; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-      }
-
-      return text;
-    },
     isPM: function () {
       return this.meridien === 'PM';
+    },
+    incrementMonth: function (amount) {
+      if (amount === 1 && this.isNextMonthVisible()) {
+        this.selectDate(this.currentDate.add(amount, 'month'));
+      }
+
+      if (amount === -1 && this.isPreviousMonthVisible()) {
+        this.selectDate(this.currentDate.add(amount, 'month'));
+      }
     },
     incrementYear: function (amount) {
       if (amount === 1 && this.isNextYearVisible()) {
@@ -452,6 +562,57 @@
       if (amount === -1 && this.isPreviousYearVisible()) {
         this.selectDate(this.currentDate.add(amount, 'year'));
       }
+    },
+    openMenu: function ($mdMenu, ev) {
+      $mdMenu.open(ev); 
+    },
+    monthsAvailable: function () {
+      var monthsArr = [], 
+          _date = moment(this.currentDate);
+
+      for (var m = 0; m < 12; m++) {
+        var curMonth = _date.month(m);
+        if (this.isAfterMinDate(curMonth.endOf('month')) && this.isBeforeMaxDate(curMonth.startOf('month'))) {
+          monthsArr.push(curMonth.format('MMMM'));
+        }
+      }
+      return monthsArr;
+    },
+    selectMonth: function (month) {
+      this.selectDate(this.currentDate.month(month));
+    },
+    yearsAvailable: function () {
+      var _minDate, _maxDate, len, startYear, yearsArr = [],
+      _date = this.currentDate.year();
+
+      if (typeof(this.minDate) !== 'undefined' && this.minDate !== null) {
+        _minDate = moment(this.minDate).year();
+      }
+      if (typeof(this.maxDate) !== 'undefined' && this.maxDate !== null) {
+        _maxDate = moment(this.maxDate).year();
+      }
+
+      if (_maxDate && _minDate) {
+        len = _maxDate - _minDate;
+        startYear = _minDate;
+      } else if (_minDate) { 
+        len = 115;
+        startYear = _minDate;
+      } else if (_maxDate) { 
+        len = 30;
+        startYear = _maxDate - len;
+      } else {
+        len = 60;
+        startYear = _date - len/2;
+      }
+     
+      for (var i=0; i < len; i++) {
+        yearsArr.push(startYear+i);
+      }
+      return yearsArr;
+    },
+    selectYear: function (year) {
+      this.selectDate(this.currentDate.year(year));
     },
     isPreviousMonthVisible: function () {
       return this.calendarStart && this.isAfterMinDate(moment(this.calendarStart).startOf('month'), false, false);
@@ -467,7 +628,11 @@
     },
     isHourAvailable: function (hour) {
       var _date = moment(this.currentDate);
-      _date.hour(this.convertHours(hour)).minute(0).second(0);
+      if (this.params.shortTime) {
+        _date.hour(this.convertHours(hour)).minute(0).second(0);
+      } else {
+        _date.hour(hour).minute(0).second(0);
+      }
       return this.isAfterMinDate(_date, true, false) && this.isBeforeMaxDate(_date, true, false);
     },
     isMinuteAvailable: function (minute) {
@@ -475,9 +640,11 @@
       _date.minute(minute).second(0);
       return this.isAfterMinDate(_date, true, true) && this.isBeforeMaxDate(_date, true, true);
     },
+    isSecondAvailable: function (second) {
+      return true;
+    },
     start: function () {
       this.currentView = VIEW_STATES.DATE;
-      //this.initDates();
       if (this.params.date) {
         this.initDate();
       } else {
@@ -487,22 +654,38 @@
       }
     },
     today: function () {
-      this.selectDate(Date.now());
+      var nearestMin = this.params.minuteSteps;
+      var date = moment();
+      var minutes = (nearestMin * Math.round(date.minute() / nearestMin));
+      if (minutes >= 60) {
+        minutes = 60 - nearestMin; //always push down
+      }
+      this.selectDate(moment(date).minutes(minutes));
     },
     ok: function () {
       switch (this.currentView) {
         case VIEW_STATES.DATE:
           if (this.params.time === true) {
             this.initHours();
-          }
-          else {
+          } else {
             this.hide(true);
           }
           break;
         case VIEW_STATES.HOUR:
-          this.initMinutes();
+          if (this.params.minutes === true) {
+            this.initMinutes();
+          } else {
+            this.hide(true);
+          }
           break;
         case VIEW_STATES.MINUTE:
+          if (this.params.seconds === true) {
+            this.initSeconds();
+          } else {
+            this.hide(true);
+          }
+          break;
+        case VIEW_STATES.SECOND:
           this.hide(true);
           break;
       }
@@ -524,6 +707,9 @@
           case VIEW_STATES.MINUTE:
             this.initHours();
             break;
+          case VIEW_STATES.SECOND:
+            this.initMinutes();
+            break;  
         }
       }
       else {
@@ -584,7 +770,6 @@
     }
   };
 
-
   angular.module(moduleName)
     .directive('mdcDatetimePickerCalendar', [
       function () {
@@ -614,19 +799,20 @@
           bindToController: true,
           controllerAs: 'cal',
           controller: ['$scope', function ($scope) {
-            this.$onInit = function () {
-              var calendar = this,
-                picker = this.picker,
-                days = [];
+            var calendar = this, picker;
 
+            this.$onInit = function () {
+              picker = this.picker;
+
+              var days = [];
               for (var i = picker.params.weekStart; days.length < 7; i++) {
                 if (i > 6) {
                   i = 0;
                 }
                 days.push(i.toString());
               }
-
               calendar.week = days;
+
               if (!picker.maxDate && !picker.minDate) {
                 calendar.months = MONTHS;
               } else {
@@ -635,100 +821,105 @@
                 calendar.months = MONTHS.slice(low, high);
               }
 
-
-              calendar.getItemAtIndex = function (index) {
-                var month = ((index + 1) % 12) || 12;
-                var year = YEAR_MIN + Math.floor(index / 12);
-                var monthObj = moment(picker.currentDate)
-                  .year(year)
-                  .month(month);
-                return generateMonthCalendar(monthObj);
-              };
-
               calendar.topIndex = currentMonthIndex(picker.currentDate) - calendar.months[0];
+            };
 
-              $scope.$watch(function () {
-                return picker.currentDate ? picker.currentDate.format('YYYY-MM') : '';
-              }, function (val2, val1) {
-                if (val2 != val1) {
-                  var nDate = moment(val2, 'YYYY-MM');
-                  var low = picker.minDate ? currentMonthIndex(picker.minDate) : 0;
-                  var index = currentMonthIndex(nDate, low);
-                  if (calendar.topIndex != index) {
-                    calendar.topIndex = index;
-                  }
+            if (angular.version.major === 1 && angular.version.minor < 5) {
+              this.$onInit();
+            }
+          
+            calendar.getItemAtIndex = function (index) {
+              var month = ((index + 1) % 12) || 12;
+              var year = YEAR_MIN + Math.floor(index / 12);
+              var monthObj = moment(picker.currentDate).year(year).month(month);
+              return generateMonthCalendar(monthObj);
+            };
+
+            $scope.$watch(function () {
+              return picker.currentDate ? picker.currentDate.format('YYYY-MM') : '';
+            }, function (val2, val1) {
+              if (val2 != val1) {
+                var nDate = moment(val2, 'YYYY-MM');
+                var low = picker.minDate ? currentMonthIndex(picker.minDate) : 0;
+                var index = currentMonthIndex(nDate, low);
+                if (calendar.topIndex != index) {
+                  calendar.topIndex = index;
                 }
-              });
+              }
+            });
 
-              var generateMonthCalendar = function (date) {
-                var month = {};
-                if (date !== null) {
-                  month.name = date.format('MMMM YYYY');
-                  var startOfMonth = moment(date).locale(picker.params.lang).startOf('month')
-                      .hour(date.hour())
-                      .minute(date.minute())
-                    ;
-                  var iNumDay = startOfMonth.format('d');
-                  month.days = [];
-                  for (var i = startOfMonth.date(); i <= startOfMonth.daysInMonth(); i++) {
-                    if (i === startOfMonth.date()) {
-                      var iWeek = calendar.week.indexOf(iNumDay.toString());
-                      if (iWeek > 0) {
-                        for (var x = 0; x < iWeek; x++) {
-                          month.days.push(0);
-                        }
+            var generateMonthCalendar = function (date) {
+              var month = {};
+              if (date !== null) {
+                month.name = date.format('MMMM YYYY');
+                var startOfMonth = moment(date).locale(picker.params.lang).startOf('month')
+                    .hour(date.hour())
+                    .minute(date.minute());
+                var iNumDay = startOfMonth.format('d');
+                month.days = [];
+                for (var i = startOfMonth.date(); i <= startOfMonth.daysInMonth(); i++) {
+                  if (i === startOfMonth.date()) {
+                    var iWeek = calendar.week.indexOf(iNumDay.toString());
+                    if (iWeek > 0) {
+                      for (var x = 0; x < iWeek; x++) {
+                        month.days.push(0);
                       }
                     }
-                    month.days.push(moment(startOfMonth).locale(picker.params.lang).date(i));
                   }
-
-                  var daysInAWeek = 7, daysTmp = [], slices = Math.ceil(month.days.length / daysInAWeek);
-                  for (var j = 0; j < slices; j++) {
-                    daysTmp.push(month.days.slice(j * daysInAWeek, (j + 1) * daysInAWeek));
-                  }
-                  month.days = daysTmp;
-                  return month;
+                  month.days.push(moment(startOfMonth).locale(picker.params.lang).date(i));
                 }
 
-              };
-
-              calendar.toDay = function (i) {
-                return moment(parseInt(i), "d")
-                  .locale(picker.params.lang)
-                  .format("dd")
-                  .substring(0, 1);
-              };
-
-              calendar.isInRange = function (date) {
-                return picker.isAfterMinDate(moment(date), false, false)
-                  && picker.isBeforeMaxDate(moment(date), false, false)
-                  && picker.isInDisableDates(moment(date));
-              };
-
-              calendar.selectDate = function (date) {
-                if (date) {
-                  if (calendar.isSelectedDay(date)) {
-                    return picker.ok();
-                  }
-                  picker.selectDate(moment(date).hour(calendar.date.hour()).minute(calendar.date.minute()));
+                var daysInAWeek = 7, daysTmp = [], slices = Math.ceil(month.days.length / daysInAWeek);
+                for (var j = 0; j < slices; j++) {
+                  daysTmp.push(month.days.slice(j * daysInAWeek, (j + 1) * daysInAWeek));
                 }
-              };
-
-              calendar.isSelectedDay = function (m) {
-                return m && calendar.date.date() === m.date() && calendar.date.month() === m.month() && calendar.date.year() === m.year();
-              };
-
-              calendar.isDateOfTheDay = function (m) {
-                var today = calendar.picker.options.showTodaysDate;
-                if (!today) {
-                  return false;
-                }
-
-                return m && today.date() === m.date() && today.month() === m.month() && today.year() === m.year();
+                month.days = daysTmp;
+                return month;
               }
-            }
+
+            };
+
+            calendar.toDay = function (i) {
+              return moment(parseInt(i), "d")
+                .locale(picker.params.lang)
+                .format("dd")
+                .substring(0, 1);
+            };
+
+            calendar.isInRange = function (date) {
+              return picker.isAfterMinDate(moment(date), false, false) &&
+                picker.isBeforeMaxDate(moment(date), false, false) &&
+                picker.isWeekDay(moment(date)) &&
+                picker.isInDisableDates(moment(date));
+            };
+
+            calendar.selectDate = function (date) {
+              if (date) {
+                if (calendar.isSelectedDay(date)) {
+                  return picker.ok();
+                }
+                picker.selectDate(moment(date).hour(calendar.date.hour()).minute(calendar.date.minute()));
+                if (picker.params.autoOk) {
+                  picker.ok();
+                }
+              }
+            };
+
+            calendar.isSelectedDay = function (m) {
+              return m && calendar.date.date() === m.date() && calendar.date.month() === m.month() && calendar.date.year() === m.year();
+            };
+
+            calendar.isDateOfTheDay = function (m) {
+              var today = calendar.picker.options.showTodaysDate;
+              if (!today) {
+                return false;
+              }
+
+              return m && today.date() === m.date() && today.month() === m.month() && today.year() === m.year();
+            };
           }],
-          template: '<md-virtual-repeat-container md-top-index="cal.topIndex" class="months">' +
+          template: 
+          '<md-virtual-repeat-container md-top-index="cal.topIndex" class="months">' +
           '<div md-virtual-repeat="idx in ::cal.months" md-auto-shrink md-item-size="' + ITEM_HEIGHT + '">' +
           '     <div mdc-datetime-picker-calendar-month idx="idx"></div>' +
           '</div>' +
@@ -752,7 +943,7 @@
                   //build a
                   var scopeRef = 'month[\'days\'][' + i + '][' + j + ']';
 
-                  tbodyHtml.push('<a href="#" mdc-dtp-noclick class="dtp-select-day" ng-class="{selected: cal.isSelectedDay(' + scopeRef + '), hilite: cal.isDateOfTheDay(' + scopeRef + ')}" ng-click="cal.selectDate(' + scopeRef + ')">');
+                  tbodyHtml.push('<a id="date-' + weekDay.format('YYYY-MM-DD') + '" href="#" mdc-dtp-noclick class="dtp-select-day" ng-class="{selected: cal.isSelectedDay(' + scopeRef + '), hilite: cal.isDateOfTheDay(' + scopeRef + ')}" ng-click="cal.selectDate(' + scopeRef + ')">');
                   tbodyHtml.push(weekDay.format('D'));
                   tbodyHtml.push('</a>');
                 } else {
@@ -776,16 +967,17 @@
           },
           require: '^mdcDatetimePickerCalendar',
           restrict: 'AE',
-          template: '<div class="dtp-picker-month">{{month.name}}</div>'
-          + '<table class="table dtp-picker-days">'
-          + '    <thead>'
-          + '    <tr>'
-          + '        <th ng-repeat="day in cal.week track by $index">{{cal.toDay(day)}}</th>'
-          + '    </tr>'
-          + '    </thead>'
-          + '    <tbody>'
-          + '    </tbody>'
-          + '</table>',
+          template: 
+            '<div class="dtp-picker-month">{{month.name}}</div>' +
+            '<table class="table dtp-picker-days">' +
+            '    <thead>' +
+            '    <tr>' +
+            '        <th ng-repeat="day in cal.week track by $index">{{cal.toDay(day)}}</th>' +
+            '    </tr>' +
+            '    </thead>' +
+            '    <tbody>' +
+            '    </tbody>' +
+            '</table>',
           link: function (scope, element, attrs, calendar) {
             scope.cal = calendar;
             scope.month = calendar.getItemAtIndex(parseInt(scope.idx));
@@ -815,30 +1007,104 @@
       };
     });
   angular.module(moduleName)
-    .directive('mdcDatetimePickerClock', [
-      function () {
+    .directive('mdcDatetimePickerClock', ['$timeout',
+      function ($timeout) {
 
-        var template = '<div class="dtp-picker-clock"><span ng-if="!points || points.length < 1">&nbsp;</span>'
-          + '<div ng-repeat="point in points" class="dtp-picker-time" ng-style="point.style">'
-          + '   <a href="#" mdc-dtp-noclick ng-class="{selected: point.value===currentValue}" class="dtp-select-hour" ng-click="setTime(point.value)" ng-if="pointAvailable(point)">{{point.display}}</a>'
-          + '   <a href="#" mdc-dtp-noclick class="disabled dtp-select-hour" ng-if="!pointAvailable(point)">{{point.display}}</a>'
-          + '</div>'
-          + '<div class="dtp-hand dtp-hour-hand"></div>'
-          + '<div class="dtp-hand dtp-minute-hand"></div>'
-          + '<div class="dtp-clock-center"></div>'
-          + '</div>';
+        var template = 
+          '<div id="timePicker" class="dtp-picker-clock"><span ng-if="!points || points.length < 1">&nbsp;</span>' +
+          '<div ng-repeat="point in points" class="dtp-picker-time noselect" ng-style="point.style">' +
+          '   <a href="#" id="time-{{mode}}-{{point.display}}" mdc-dtp-noclick ng-class="{selected: point.value===currentValue}" class="dtp-select-hour" ng-click="setTime(point.value)" ng-if="pointAvailable(point)">{{point.display}}</a>' +
+          '   <a href="#" mdc-dtp-noclick class="disabled dtp-select-hour" ng-if="!pointAvailable(point)">{{point.display}}</a>' +
+          '</div>' +
+          '<div ng-if="points24.length" ng-repeat="point24 in points24" class="dtp-picker-time noselect" ng-style="point24.style">' +
+          '   <a href="#" id="time-24hours-{{point24.display}}" mdc-dtp-noclick ng-class="{selected: point24.value===currentValue}" class="dtp-select-hour" ng-click="setTime(point24.value)" ng-if="pointAvailable(point24)">{{point24.display}}</a>' +
+          '   <a href="#" mdc-dtp-noclick class="disabled dtp-select-hour" ng-if="!pointAvailable(point24)">{{point24.display}}</a>' +
+          '</div>' +
+          '<div class="dtp-hand dtp-hour-hand"></div>' +
+          '<div class="dtp-hand dtp-minute-hand"></div>' +
+          '<div ng-if="picker.params.seconds" class="dtp-hand dtp-second-hand"></div>' +
+          '<div class="dtp-clock-center"></div>' +
+          '</div>';
 
         return {
           restrict: 'E',
           template: template,
           link: function (scope, element, attrs) {
             var minuteMode = attrs.mode === 'minutes';
+            var secondMode = attrs.mode === 'seconds';
             var picker = scope.picker;
             //banking on the fact that there will only be one at a time
             var componentRoot = document.querySelector('md-dialog.dtp');
+
+            var setTimeDegRay = function(deg, ray) {
+              var val = 0;
+              deg = deg >= 360 ? 0 : deg;
+              if (deg !== 0) {
+                var divider = minuteMode||secondMode ? 60 : 12;
+                val = Math.round(divider / 360 * deg);
+              }
+
+              if (minuteMode) {
+                var nearestMin = picker.params.minuteSteps;
+                if (nearestMin < 1 || nearestMin > 59) nearestMin = 1;
+
+                var minutes = (nearestMin * Math.round(val / nearestMin));
+                if (minutes >= 60) {
+                  minutes = 60 - nearestMin; //always push down
+                }
+                picker.currentDate.minute(minutes);
+              } else if (!secondMode){
+                if (val === 12) val = 0;
+                if (!picker.params.shortTime) picker.meridien = ray > 84 ? 'AM' : 'PM';
+                picker.currentDate.hour(picker.isPM() ? val + 12 : val);
+              } else {
+                if (val >= 60) val = 0;
+                picker.currentDate.second(val);
+              }
+              
+            };
+
+            var isTouchSupported = ('ontouchstart' in window) ? true : false,
+            EVENTS = {
+              POINTER_DOWN : isTouchSupported ? 'touchstart' : 'mousedown',
+              POINTER_UP   : isTouchSupported ? 'touchend'   : 'mouseup',
+              POINTER_MOVE : isTouchSupported ? 'touchmove'  : 'mousemove'
+            };
+
+            var onMoveEvent = function(e) {
+              e.preventDefault();
+
+              var closestTarget = e.currentTarget.closest('div'),
+              clientRect = closestTarget.getClientRects()[0];
+
+              if (isTouchSupported) e = e.changedTouches[0];
+              
+              var x = ((closestTarget.offsetWidth / 2) - (e.pageX - clientRect.left)),
+                  y = ((e.pageY - clientRect.top) - (closestTarget.offsetHeight / 2));
+              
+              var ray = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+              var deg = Math.round((Math.atan2(x, y) * (180 / Math.PI)));
+
+              $timeout(function() {
+                setTimeDegRay(deg+180, ray);
+              });
+            };
+
+            element.on(EVENTS.POINTER_DOWN, function() {
+               element.on(EVENTS.POINTER_MOVE, onMoveEvent);
+            });
+
+            element.on(EVENTS.POINTER_UP, function() {
+                element.off(EVENTS.POINTER_MOVE);
+            });
+
+            scope.$on("$destroy", function() {
+                element.off(EVENTS.POINTER_MOVE, onMoveEvent); 
+            });
+
             var exec = function () {
               var clock = angular.element(element[0].querySelector('.dtp-picker-clock')),
-                pickerEl = angular.element(componentRoot.querySelector('.dtp-picker'));
+                  pickerEl = angular.element(componentRoot.querySelector('.dtp-picker'));
 
               var w = componentRoot.querySelector('.dtp-content').offsetWidth;
               var pl = parseInt(css(pickerEl, 'paddingLeft').replace('px', '')) || 0;
@@ -855,8 +1121,8 @@
               var mT = parseInt(css(clock, 'marginTop').replace('px', '')) || 0;
 
               var r = (clockWidth / 2);
-              var j = r / 1.2; //???
-
+              var j = r / 1.2; // radius for low number
+   
               var points = [];
 
               for (var h = 0; h < 12; ++h) {
@@ -868,41 +1134,64 @@
                 var hour = {
                   left: left,
                   top: top,
-                  value: (minuteMode ? (h * 5) : h), //5 for minute 60/12
+                  value: (minuteMode||secondMode ? (h * 5) : h), //5 for minute 60/12
                   style: {'margin-left': left + 'px', 'margin-top': top + 'px'}
                 };
 
-                if (minuteMode) {
+                if (minuteMode || secondMode) {
                   hour.display = hour.value < 10 ? ('0' + hour.value) : hour.value;
                 } else {
-
                   if (picker.params.shortTime) {
                     hour.display = (h === 0) ? 12 : h;
                   } else {
-                    hour.display = picker.isPM() ? h + 12 : h;
+                    hour.display = h;
                   }
                 }
 
-
                 points.push(hour);
               }
-
               scope.points = points;
+
+              if (!picker.params.shortTime && !minuteMode && !secondMode) {
+                var points24 = [];
+
+                var j24 = r / 1.8; // radius for high number
+                for (var h24 = 12; h24 < 24; ++h24) {
+                  var x24 = j24 * Math.sin(Math.PI * 2 * (h24 / 12));
+                  var y24 = j24 * Math.cos(Math.PI * 2 * (h24 / 12));
+                  var left24 = (r + x24 + pL / 2) - (pL + mL);
+                  var top24 = (r - y24 - mT / 2) - (pT + mT);
+
+                  var hour24 = {
+                    left: left24,
+                    top: top24,
+                    value: h24,
+                    style: {'margin-left': left24 + 'px', 'margin-top': top24 + 'px'}
+                  };
+
+                  hour24.display = h24;
+
+                  points24.push(hour24);
+                }
+                scope.points24 = points24;
+              }
+
+              scope.mode = attrs.mode;
               setCurrentValue();
               clock.css('height', clockWidth + 'px');
-              //picker.initHands(true);
 
               var clockCenter = element[0].querySelector('.dtp-clock-center');
               var centerWidth = (clockCenter.offsetWidth / 2) || 7.5,
                 centerHeight = (clockCenter.offsetHeight / 2) || 7.5;
-              var _hL = r / 1.8;
-              var _mL = r / 1.5;
+              var _hL = r / (picker.params.shortTime ? 1.8 : 2.3);
+              var _mL = r / 1.4;
+              var _sL = r / 1;
 
               angular.element(element[0].querySelector('.dtp-hour-hand')).css({
                 left: r + (mL * 1.5) + 'px',
                 height: _hL + 'px',
                 marginTop: (r - _hL - pL) + 'px'
-              }).addClass(!minuteMode ? 'on' : '');
+              }).addClass(!minuteMode && !secondMode ? 'on' : '');
 
               angular.element(element[0].querySelector('.dtp-minute-hand')).css
               ({
@@ -910,6 +1199,13 @@
                 height: _mL + 'px',
                 marginTop: (r - _mL - pL) + 'px'
               }).addClass(minuteMode ? 'on' : '');
+
+              angular.element(element[0].querySelector('.dtp-second-hand')).css
+              ({
+                left: r + (mL * 1.5) + 'px',
+                height: _sL + 'px',
+                marginTop: (r - _sL - pL) + 'px'
+              }).addClass(secondMode ? 'on' : '');
 
               angular.element(clockCenter).css({
                 left: (r + pL + mL - centerWidth) + 'px',
@@ -919,13 +1215,14 @@
             };
 
             var animateHands = function () {
-              var _date = picker.currentNearest5Minute();
+              var _date = picker.currentNearestMinute();
               var h = _date.hour();
               var m = _date.minute();
+              var s = _date.second();
 
-              rotateElement(angular.element(element[0].querySelector('.dtp-hour-hand')), (360 / 12) * h);
-              var mdg = ((360 / 60) * (5 * Math.round(m / 5)));
-              rotateElement(angular.element(element[0].querySelector('.dtp-minute-hand')), mdg);
+              rotateElement(angular.element(element[0].querySelector('.dtp-hour-hand')), 30 * h);
+              rotateElement(angular.element(element[0].querySelector('.dtp-minute-hand')), 6 * m);
+              rotateElement(angular.element(element[0].querySelector('.dtp-second-hand')), 6 * s);
             };
 
             var rotateElement = function (el, deg) {
@@ -939,56 +1236,60 @@
 
 
             var setCurrentValue = function () {
-              var date = picker.currentNearest5Minute();
-              scope.currentValue = minuteMode ? date.minute() : (date.hour() % 12);
+              var date = picker.currentNearestMinute();
+              var nbH = picker.params.shortTime ? 12 : 24;
+              if (minuteMode) {
+                scope.currentValue = date.minute();
+              } else if (secondMode) {
+                scope.currentValue = date.second();
+              } else {
+                scope.currentValue = date.hour() % nbH;
+              }
             };
 
             scope.$watch(function () {
-              var tmp = picker.currentNearest5Minute();
-              return tmp ? tmp.format('HH:mm') : '';
+              var tmp = picker.currentNearestMinute();
+              return tmp ? tmp.format('HH:mm:ss') : '';
             }, function () {
               setCurrentValue();
               animateHands();
             });
 
-
-            var setDisplayPoints = function (isPM, points) {
-              for (var i = 0; i < points.length; i++) {
-                points[i].display = i;
-                if (isPM) {
-                  points[i].display += 12;
-                }
-              }
-              return points;
-            };
-
-            if (!picker.params.shortTime) {
-              scope.$watch('picker.meridien', function () {
-                if (!minuteMode) {
-                  if (scope.points) {
-                    var points = setDisplayPoints(picker.isPM(), angular.copy(scope.points));
-                    scope.points = points;
-                  }
-                }
-              });
-            }
-
-
             scope.setTime = function (val) {
-              if (val === scope.currentValue) {
-                picker.ok();
-              }
+              if (!minuteMode && !secondMode) {
+                if (val === scope.currentValue && !picker.params.autoOk) picker.ok(); // double click
 
-              if (!minuteMode) {
-                picker.currentDate.hour(picker.isPM() ? (val + 12) : val);
-              } else {
+                if (picker.params.shortTime) {
+                  picker.currentDate.hour(picker.isPM() ? (val + 12) : val);
+                } else {
+                  picker.currentDate.hour(val);
+                  if (val >= 12) picker.meridien = 'PM';
+                  else picker.meridien = 'AM';
+                }
+
+                if (picker.params.autoOk) picker.ok(); // single click
+              } else if (!secondMode) {
+                if (val === scope.currentValue && !picker.params.seconds) {
+                  picker.ok(); // double click
+                }
                 picker.currentDate.minute(val);
+                if (!picker.params.seconds) {
+                  picker.currentDate.second(0);
+                } else if (picker.params.autoOk) picker.ok(); // single click
+              } else {
+                if (val === scope.currentValue) picker.ok(); // double click
+                picker.currentDate.second(val);
               }
-              picker.currentDate.second(0)
             };
 
             scope.pointAvailable = function (point) {
-              return minuteMode ? picker.isMinuteAvailable(point.value) : picker.isHourAvailable(point.value);
+              if (minuteMode) {
+                return picker.isMinuteAvailable(point.value);
+              } else if (secondMode) {
+                return picker.isSecondAvailable(point.value);
+              } else {
+                return picker.isHourAvailable(point.value);
+              }
             };
 
             var unWatcher = scope.$watch(function () {
@@ -998,7 +1299,17 @@
               unWatcher();
             });
           }
-        }
+        };
       }]);
+    return moduleName;
+  }
 
+  var isElectron = window && window.process && window.process.type;
+  if (typeof define === 'function' && define.amd) {
+    define(['moment'], ngMaterialDatePicker);
+  } else if (typeof module !== 'undefined' && module && module.exports && (typeof require === 'function') && !isElectron) {
+    module.exports = ngMaterialDatePicker(require('moment'));
+  } else {
+    ngMaterialDatePicker((typeof global !== 'undefined' ? global : window).moment);
+  }
 })();
