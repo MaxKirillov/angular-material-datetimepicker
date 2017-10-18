@@ -1,3 +1,4 @@
+
 md-dialog.dtp {
     font-size: 14px;
     line-height: 1.42857143;
@@ -39,23 +40,20 @@ md-dialog.dtp {
     max-height: 500px;
 }
 
-.dtp > .dtp-content > .dtp-date-view > header.dtp-header {
-    background: #689F38;
-    color: #fff;
-    text-align: center;
-    padding: 3px;
-}
-
 .dtp div.dtp-date, .dtp div.dtp-time {
-    background: #8BC34A;
+    background: #f6f6f6;
     text-align: center;
-    color: #fff;
+    color: rgba(0,0,0,0.54);
     padding: 10px;
 }
 
 .dtp div.dtp-date > div {
     padding: 0;
     margin: 0;
+}
+
+.dtp div.dtp-actual-day {
+    font-size: 1.5em;
 }
 
 .dtp div.dtp-actual-month {
@@ -73,8 +71,8 @@ md-dialog.dtp {
 }
 
 .dtp div.dtp-actual-year {
-    font-size: 1.6em;
-    color: #DCEDC8;
+    font-size: 2em;
+    color: rgba(0,0,0,0.54);
 }
 
 .dtp div.dtp-year-btn {
@@ -157,20 +155,20 @@ md-dialog.dtp {
 .dtp table.dtp-picker-days tr > td > .dtp-select-day, .dtp .dtp-picker-time > a {
     color: #212121;
     text-decoration: none;
-    padding: 10px;
+    padding: 11px;
     border-radius: 50% !important;
 }
 
 .dtp table.dtp-picker-days tr > td > a.selected {
-    background: #8BC34A;
+    background: #c51162;
     color: #fff;
 }
 
 .dtp table.dtp-picker-days tr > td > a.selected.hilite {
-    padding: 6px;
+    padding: 7px;
     font-size: 16px;
     font-weight: 500;
-    background: #8BC34A;
+    background: #c51162;
     color: #fff;
 }
 
@@ -178,7 +176,7 @@ md-dialog.dtp {
     padding: 6px;
     font-size: 16px;
     font-weight: 500;
-    color: #8BC34A;
+    color: #c51162;
 }
 
 .dtp table.dtp-picker-days tr > td > a:hover:not(.selected) {
@@ -232,7 +230,7 @@ md-dialog.dtp {
 }
 
 .dtp .dtp-actual-meridien a.selected {
-    background: #689F38;
+    background: #c51162;
     color: #fff;
 }
 
@@ -253,7 +251,7 @@ md-dialog.dtp {
 }
 
 .dtp .dtp-picker-time > a.dtp-select-hour.selected {
-    background: #689F38;
+    background: #c51162;
     color: #fff;
 }
 
@@ -262,7 +260,7 @@ md-dialog.dtp {
 }
 
 .dtp .dtp-picker-time > a.dtp-select-minute.selected {
-    background: #8BC34A;
+    background: #c51162;
     color: #fff;
 }
 
@@ -304,11 +302,11 @@ md-dialog.dtp {
 }
 
 .dtp .dtp-hand.on {
-    background: #8BC34A;
+    background: #c51162;
 }
 
 .dtp .dtp-buttons {
-    padding-bottom: 10px;
+    padding-bottom: 0;
     text-align: right;
 }
 
@@ -335,4 +333,3 @@ md-dialog.dtp {
 .dtp .center {
     text-align: center;
 }
-
